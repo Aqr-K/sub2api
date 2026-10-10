@@ -32,6 +32,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)
+	clearOpenAIResponsesCollabPlaintextMapping(c)
 	setCodexToolNameReverse(c, nil)
 	if _, err := s.prepareCodexAccountIdentitySource(ctx, c, account); err != nil {
 		return nil, err
@@ -113,6 +114,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	wsDecision = resolveOpenAIWSDecisionByClientTransport(wsDecision, GetOpenAIClientTransport(c))
 	passthroughEnabled := account.IsOpenAIPassthroughEnabled()
 	compactPath := isOpenAIResponsesCompactPath(c)
+	// collaboration plaintext opt-in：必须在账号侧 namespace strip/flatten 之前
+	// 降级并记录 mapping，否则剥离先发生会丢失原始 namespace/name 身份。
+	// compact 不是新 collaboration 调用生成路径，按契约跳过转换。
+	if account.IsOpenAIResponsesPlaintextCollaborationEnabled() && !compactPath {
+		adaptedBody, adaptErr := adaptOpenAIResponsesCollabPlaintextBody(c, account, body)
+		if adaptErr != nil {
+			setOpsUpstreamError(c, http.StatusBadRequest, adaptErr.Error(), "")
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"type": "invalid_request_error", "message": adaptErr.Error(), "param": "tools",
+			}})
+			return nil, adaptErr
+		}
+		body = adaptedBody
+	}
 	if shouldFlattenOpenAIResponsesNamespaces(account, wsDecision.Transport, passthroughEnabled, compactPath) {
 		body, err = flattenOpenAIResponsesNamespaces(c, body)
 		if err != nil {
@@ -183,7 +198,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
 		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
 	}
-	switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel) {
+	upstreamProtocol := s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel)
+	if account.IsOpenAIResponsesPlaintextCollaborationEnabled() && !compactPath && upstreamProtocol != APIProtocolResponses {
+		adaptErr := plaintextCollaborationError(errOpenAIResponsesCollabPlaintextUnsupported)
+		setOpsUpstreamError(c, http.StatusBadRequest, adaptErr.Error(), "")
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+			"type": "invalid_request_error", "message": adaptErr.Error(), "param": "tools",
+		}})
+		return nil, adaptErr
+	}
+	switch upstreamProtocol {
 	case APIProtocolAnthropic:
 		// Responses 客户端 × Anthropic 上游：转成 Anthropic 请求走原生端点。不能落到
 		// raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
@@ -902,7 +926,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				wsLastFailureReason,
 				&agentTaskRecoveryTried,
 			)
-			if wsErr == nil {
+			if wsErr == nil || IsOpenAIResponseCompatibilityError(wsErr) {
 				break
 			}
 			if c != nil && c.Writer != nil && c.Writer.Written() {
@@ -1014,6 +1038,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			return wsResult, nil
 		}
 		s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
+		if IsOpenAIResponseCompatibilityError(wsErr) && wsResult != nil {
+			wsResult.UpstreamModel = upstreamModel
+			if wsResult.BillingModel == "" {
+				wsResult.BillingModel = billingModel
+			}
+			return wsResult, wsErr
+		}
 		return nil, wsErr
 	}
 
@@ -1224,7 +1255,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		var imageOutputSizes []string
 		if reqStream {
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
-			if IsOpenAIEncryptedHistoryError(err) && streamResult != nil {
+			if IsOpenAIResponseCompatibilityError(err) && streamResult != nil {
 				responseErr = err
 			} else if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
@@ -1273,7 +1304,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			searchCount = streamResult.searchCount
 		} else {
 			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
-			if IsOpenAIEncryptedHistoryError(err) && nonStreamResult != nil {
+			if IsOpenAIResponseCompatibilityError(err) && nonStreamResult != nil {
 				responseErr = err
 			} else if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {

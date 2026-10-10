@@ -1,6 +1,6 @@
 # #7708：Responses 加密历史失败的识别、恢复与预防
 
-状态：设计已审查；工作项 1 的第一批实现已落地，完整修复未完成。设计日期：2026-10-09；实现记录更新：2026-10-10。见 [实现与验证记录](issue-7708-implementation.md)。
+状态：设计已审查；工作项 1 的第一批实现已落地，完整修复未完成。设计日期：2026-10-09；实现记录更新：2026-10-10。见 [第一批实现与验证记录](issue-7708-implementation.md)。第二批已实现默认关闭的新会话明文协作选项，详见 [第二批实现与验证](issue-7708-plaintext-collaboration.md)；未完成的恢复和生命周期工作不因此视为完成。
 
 修改源为 [Aqr-K/sub2api](https://github.com/Aqr-K/sub2api)，官方上游为 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)。设计基线固定为 `3a6fd1c9db07203ca308aaba69e502bc1f35b307`（0.2.15）；故障报告使用 0.2.4 / `5de5e2bed035d43591a2e10e51f420ef6a84eb98`。原始设计分支为 `docs/issue-7708-recovery-plan`，第一批实现分支为 `fix/7708-encrypted-history-errors`。
 
@@ -174,7 +174,7 @@ handler 在本次请求首次完成账号准入、首次网络转发前冻结恢
 
 ## 7. 新消息预防：实验性明文协作适配
 
-这解决“后续不再产生特定不可移植密文”，不解决所有工具加密协议或旧会话。相关 [#7520](https://github.com/Wei-Shaw/sub2api/pull/7520) 未合并，只作为设计参考，不直接摘入其实现。
+这解决“后续不再产生特定不可移植密文”，不解决所有工具加密协议或旧会话。相关 [#7520](https://github.com/Wei-Shaw/sub2api/pull/7520) 未合并。实施阶段在完成源码协议审计后，复用了其固定版本中的映射、传输与 UI 原型并补充验证及保护；具体来源与边界见 [第二批实现](issue-7708-plaintext-collaboration.md)，不以该 PR 作为官方支持或实际模型验证的证据。
 
 必须先完成协议验证步骤，确认当前 Codex CLI/OpenAI wire contract，尤其 `encrypted_function_args` 的位置、含义和客户端回传规则。通过后才实现独立默认关闭的 `accounts.extra.openai_responses_plaintext_collaboration`：
 

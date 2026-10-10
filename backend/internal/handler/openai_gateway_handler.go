@@ -875,7 +875,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				submitResponsesUsage(result)
 				return
 			}
-			if result != nil && result.ImageCount > 0 && !service.IsOpenAIEncryptedHistoryError(err) {
+			if result != nil && result.ImageCount > 0 && !service.IsOpenAIResponseCompatibilityError(err) {
 				reqLog.Warn("openai.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
 					zap.Int("image_count", result.ImageCount),
@@ -3121,7 +3121,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					turnErr,
 				)
 				if turnErr != nil {
-					if result == nil || result.ImageCount <= 0 {
+					if service.IsOpenAIResponseCompatibilityError(turnErr) || result == nil || result.ImageCount <= 0 {
 						return
 					}
 					// cyber 命中时该 turn 的用量已由 recordCyberPolicyIfMarked(forwardErrored=true)

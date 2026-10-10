@@ -2516,8 +2516,8 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	if account == nil {
 		return false
 	}
-	if !success && len(observedErr) > 0 && IsOpenAIEncryptedHistoryError(observedErr[0]) {
-		return false // Request history is neither account success nor account failure.
+	if !success && len(observedErr) > 0 && IsOpenAIResponseCompatibilityError(observedErr[0]) {
+		return false // History/adapter compatibility is neither account success nor account failure.
 	}
 	accountID := account.ID
 	healthTripped := false
@@ -2546,7 +2546,7 @@ func (s *OpenAIGatewayService) ObserveOpenAIAccountHealthFailure(ctx context.Con
 	if s == nil || s.rateLimitService == nil || account == nil || observedErr == nil {
 		return false
 	}
-	if IsOpenAIEncryptedHistoryError(observedErr) {
+	if IsOpenAIResponseCompatibilityError(observedErr) {
 		return false
 	}
 	return s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(ctx, account, observedErr)

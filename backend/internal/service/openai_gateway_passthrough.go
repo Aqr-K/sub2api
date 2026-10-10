@@ -450,7 +450,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 		if reqStream {
 			result, handleErr := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
-			if IsOpenAIEncryptedHistoryError(handleErr) && result != nil {
+			if IsOpenAIResponseCompatibilityError(handleErr) && result != nil {
 				responseErr = handleErr
 			} else if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
@@ -479,7 +479,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			imageOutputSizes = result.imageOutputSizes
 		} else {
 			result, handleErr := s.handleNonStreamingResponsePassthrough(ctx, resp, c, account, reqModel, upstreamPassthroughModel)
-			if IsOpenAIEncryptedHistoryError(handleErr) && result != nil {
+			if IsOpenAIResponseCompatibilityError(handleErr) && result != nil {
 				responseErr = handleErr
 			} else if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
@@ -2055,6 +2055,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 					return resultWithUsage(), fmt.Errorf("restore OpenAI passthrough namespace response: %w", restoreErr)
 				}
 				restoredData = restoreCodexToolNamesFromSSEContext(c, restoredData, rawEventType)
+				restoredData, restoreErr = restoreOpenAIResponsesCollabPlaintextPayload(c, restoredData)
+				if restoreErr != nil {
+					s.parseSSEUsageBytesWithType(dataBytes, rawEventType, usage)
+					return resultWithUsage(), fmt.Errorf("restore OpenAI passthrough collaboration plaintext response: %w", restoreErr)
+				}
 				if !bytes.Equal(restoredData, dataBytes) {
 					dataBytes = restoredData
 					trimmedData = strings.TrimSpace(string(restoredData))
@@ -2386,6 +2391,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
+	body, err = restoreOpenAIResponsesCollabPlaintextPayload(c, body)
+	if err != nil {
+		return &openaiNonStreamingResultPassthrough{OpenAIUsage: usage, usage: usage}, fmt.Errorf("restore OpenAI passthrough collaboration plaintext response: %w", err)
+	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -2432,6 +2441,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
 	usage := s.parseSSEUsageFromBody(bodyText)
+	if _, adapted := openAIResponsesCollabPlaintextMapping(c); adapted && !ok {
+		return &openaiNonStreamingResultPassthrough{OpenAIUsage: usage, usage: usage}, plaintextCollaborationError(errors.New("plaintext collaboration response ended without a terminal response"))
+	}
 	if ok {
 		if parsedUsage, parsed := extractOpenAIUsageFromJSONBytes(finalResponse); parsed {
 			*usage = parsedUsage
@@ -2457,6 +2469,10 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", restoreErr)
 		}
 		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
+		restoredBody, restoreErr = restoreOpenAIResponsesCollabPlaintextPayload(c, restoredBody)
+		if restoreErr != nil {
+			return &openaiNonStreamingResultPassthrough{OpenAIUsage: usage, usage: usage}, fmt.Errorf("restore OpenAI passthrough collaboration plaintext response: %w", restoreErr)
+		}
 		body = restoredBody
 	} else {
 		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {

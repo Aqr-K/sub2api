@@ -663,6 +663,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return
 			}
 			restoredData = restoreCodexToolNamesFromSSEContext(c, restoredData, eventType)
+			restoredData, restoreErr = restoreOpenAIResponsesCollabPlaintextPayload(c, restoredData)
+			if restoreErr != nil {
+				s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
+				streamEarlyErr = fmt.Errorf("restore OpenAI collaboration plaintext response: %w", restoreErr)
+				return
+			}
 			if !bytes.Equal(restoredData, dataBytes) {
 				dataBytes = restoredData
 				data = string(restoredData)
@@ -1682,6 +1688,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
 	}
 	body = restoreCodexToolNamesFromContext(c, body)
+	body, err = restoreOpenAIResponsesCollabPlaintextPayload(c, body)
+	if err != nil {
+		return &openaiNonStreamingResult{OpenAIUsage: usage, usage: usage}, fmt.Errorf("restore OpenAI collaboration plaintext response: %w", err)
+	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	// Codex 协议要求 /responses/compact JSON 响应携带 x-codex-turn-state
 	// （codex-api/src/endpoint/compact.rs 从响应头捕获），显式回传。
@@ -1759,6 +1769,9 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
 	usage := s.parseSSEUsageFromBody(bodyText)
+	if _, adapted := openAIResponsesCollabPlaintextMapping(c); adapted && !ok {
+		return &openaiNonStreamingResult{OpenAIUsage: usage, usage: usage}, plaintextCollaborationError(errors.New("plaintext collaboration response ended without a terminal response"))
+	}
 	if ok {
 		if parsedUsage, parsed := extractOpenAIUsageFromJSONBytes(finalResponse); parsed {
 			*usage = parsedUsage
@@ -1793,6 +1806,10 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
 		}
 		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
+		restoredBody, restoreErr = restoreOpenAIResponsesCollabPlaintextPayload(c, restoredBody)
+		if restoreErr != nil {
+			return &openaiNonStreamingResult{OpenAIUsage: usage, usage: usage}, fmt.Errorf("restore OpenAI collaboration plaintext response: %w", restoreErr)
+		}
 		body = restoredBody
 	} else {
 		if originalModel != mappedModel {
