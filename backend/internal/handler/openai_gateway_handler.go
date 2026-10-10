@@ -875,7 +875,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				submitResponsesUsage(result)
 				return
 			}
-			if result != nil && result.ImageCount > 0 {
+			if result != nil && result.ImageCount > 0 && !service.IsOpenAIEncryptedHistoryError(err) {
 				reqLog.Warn("openai.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
 					zap.Int("image_count", result.ImageCount),

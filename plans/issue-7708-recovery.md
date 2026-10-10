@@ -1,8 +1,8 @@
 # #7708：Responses 加密历史失败的识别、恢复与预防
 
-状态：设计稿，尚未实现。日期：2026-10-09。
+状态：设计已审查；工作项 1 的第一批实现已落地，完整修复未完成。设计日期：2026-10-09；实现记录更新：2026-10-10。见 [实现与验证记录](issue-7708-implementation.md)。
 
-修改源为 [Aqr-K/sub2api](https://github.com/Aqr-K/sub2api)，官方上游为 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)。设计基线固定为 `3a6fd1c9db07203ca308aaba69e502bc1f35b307`（0.2.15）；故障报告使用 0.2.4 / `5de5e2bed035d43591a2e10e51f420ef6a84eb98`。本文件所在分支为 `docs/issue-7708-recovery-plan`。
+修改源为 [Aqr-K/sub2api](https://github.com/Aqr-K/sub2api)，官方上游为 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)。设计基线固定为 `3a6fd1c9db07203ca308aaba69e502bc1f35b307`（0.2.15）；故障报告使用 0.2.4 / `5de5e2bed035d43591a2e10e51f420ef6a84eb98`。原始设计分支为 `docs/issue-7708-recovery-plan`，第一批实现分支为 `fix/7708-encrypted-history-errors`。
 
 ## 1. 目标与完成口径
 
@@ -318,7 +318,7 @@ pnpm --dir frontend run build
 - 观测只用有限枚举：failure_kind、recovery_action、terminal_complete、usage_state、attempt_count；request/account/session ID 留在访问受控的诊断记录，不做无限基数 metrics labels，不记录任务正文或密文。
 - 回滚通过关闭新选项和分别 revert PR 完成；不用破坏性历史迁移，不修改其他 fork 的实现。
 - 每项 PR 描述必须列触发前后行为、实际基线、支持/不支持场景、执行过的测试及风险。不因 CI 未触发、仅 helper 通过或模拟上游 200 就标记完成。
-- 默认所有实现 PR 指向 **Aqr-K/sub2api**；本轮只提交设计文档，不向官方发 PR/评论，不部署。
+- 默认所有实现 PR 指向 **Aqr-K/sub2api**；初次设计轮只提交文档，后续实现独立建分支。未向官方发 PR/评论，未部署。
 - 若后续证据要求拆分/增补工作项，更新依赖图、上下文简报、验证命令和完成口径，并记录改变原因。工作项 4 的证据不足不能被后续实现绕过。
 
 ## 11. 独立审查记录

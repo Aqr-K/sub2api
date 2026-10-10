@@ -2516,6 +2516,9 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	if account == nil {
 		return false
 	}
+	if !success && len(observedErr) > 0 && IsOpenAIEncryptedHistoryError(observedErr[0]) {
+		return false // Request history is neither account success nor account failure.
+	}
 	accountID := account.ID
 	healthTripped := false
 	if s != nil && s.rateLimitService != nil {
@@ -2541,6 +2544,9 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 // scheduler-result path, for example after semantic response bytes were sent.
 func (s *OpenAIGatewayService) ObserveOpenAIAccountHealthFailure(ctx context.Context, account *Account, observedErr error) bool {
 	if s == nil || s.rateLimitService == nil || account == nil || observedErr == nil {
+		return false
+	}
+	if IsOpenAIEncryptedHistoryError(observedErr) {
 		return false
 	}
 	return s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(ctx, account, observedErr)

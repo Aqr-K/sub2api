@@ -1215,6 +1215,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		reqBody = nil
 
 		// Handle normal response
+		var responseErr error
 		var usage *OpenAIUsage
 		var firstTokenMs *int
 		responseID := ""
@@ -1223,7 +1224,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		var imageOutputSizes []string
 		if reqStream {
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
-			if err != nil {
+			if IsOpenAIEncryptedHistoryError(err) && streamResult != nil {
+				responseErr = err
+			} else if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 						c, account, requestedModel, body, http.StatusBadRequest, signal.message, signal.payload, compactModelFallbackRetried,
@@ -1270,7 +1273,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			searchCount = streamResult.searchCount
 		} else {
 			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
-			if err != nil {
+			if IsOpenAIEncryptedHistoryError(err) && nonStreamResult != nil {
+				responseErr = err
+			} else if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 						c, account, requestedModel, body, http.StatusBadRequest, signal.message, signal.payload, compactModelFallbackRetried,
@@ -1292,16 +1297,18 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			imageOutputSizes = nonStreamResult.imageOutputSizes
 			searchCount = nonStreamResult.searchCount
 		}
-		s.bindHTTPResponseAccount(ctx, c, account, responseID)
+		if responseErr == nil {
+			s.bindHTTPResponseAccount(ctx, c, account, responseID)
 
-		// Extract and save Codex usage snapshot from response headers (for OAuth accounts).
-		// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
-		if account.UsesOpenAICodexProtocol() && !account.IsShadow() {
-			if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-				s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+			// Extract and save Codex usage snapshot from response headers (for OAuth accounts).
+			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
+			if account.UsesOpenAICodexProtocol() && !account.IsShadow() {
+				if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
+					s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+				}
+			} else if account.IsShadow() && account.ParentAccountID != nil {
+				notifyOpenAIAutoReset(*account.ParentAccountID)
 			}
-		} else if account.IsShadow() && account.ParentAccountID != nil {
-			notifyOpenAIAutoReset(*account.ParentAccountID)
 		}
 
 		if usage == nil {
@@ -1340,7 +1347,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			forwardResult.SearchCount = searchCount
 		}
 		stampOpenAIResponsesUpstreamEndpoint(c, forwardResult)
-		return forwardResult, nil
+		return forwardResult, responseErr
 	}
 }
 
